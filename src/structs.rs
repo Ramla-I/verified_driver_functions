@@ -47,16 +47,19 @@ impl AdvancedRxDescriptor {
     }
 
     #[inline(always)]
+    #[trusted]
     pub fn descriptor_done(&self) -> bool{
-        // (self.get_ext_status() & RX_STATUS_DD as u64) == RX_STATUS_DD as u64
-        true
+        (self.get_ext_status() & RX_STATUS_DD as u64) == RX_STATUS_DD as u64
     }
 
+    #[inline(always)]
+    #[trusted]
     pub fn end_of_packet(&self) -> bool {
-        // (self.get_ext_status() & RX_STATUS_EOP as u64) == RX_STATUS_EOP as u64    
-        true    
+        (self.get_ext_status() & RX_STATUS_EOP as u64) == RX_STATUS_EOP as u64      
     }
 
+    #[inline(always)]
+    #[trusted]
     pub fn length(&self) -> u64 {
         self.get_pkt_len() as u64
     }
@@ -64,17 +67,19 @@ impl AdvancedRxDescriptor {
     /// Write Back mode function for the Advanced Receive Descriptor.
     /// Status information indicates whether a descriptor has been used 
     /// and whether the buffer is the last one for a packet
+    #[inline(always)]
+    #[trusted]
     pub fn get_ext_status(&self) -> u64{
-        // self.header_buffer_address.read() & 0xFFFFF //.get_bits(0..19) ?
-        self.header_buffer_address.read()
+        self.header_buffer_address.read() & 0xFFFFF //.get_bits(0..19) ?
     }
     
     
     /// Write Back mode function for the Advanced Receive Descriptor.
     /// Returns the number of bytes posted to the packet buffer
+    #[inline(always)]
+    #[trusted]
     pub fn get_pkt_len(&self) -> u64{
-        // (self.header_buffer_address.read() & 0xFFFF) >>  32//.get_bits(32..47) 
-        self.header_buffer_address.read()
+        (self.header_buffer_address.read() & 0xFFFF) >>  32//.get_bits(32..47) 
     }
  
 }
@@ -193,28 +198,7 @@ pub struct RangeInclusive<Idx: Clone + PartialOrd> {
     end: Idx
 }
 
-// impl<Idx: Clone + PartialOrd> RangeInclusive<Idx> {
-//     #[ensures(result.start == start)]
-//     #[ensures(result.end == end)]
-//     pub(crate) const fn new(start: Idx, end: Idx) -> Self {
-//         Self{start, end}
-//     }
 
-//     #[pure]
-//     pub const fn start(&self) -> &Idx {
-//         &self.start
-//     }
-
-//     #[pure]
-//     pub const fn end(&self) -> &Idx {
-//         &self.end
-//     }
-
-//     pub fn is_empty(&self) -> bool {
-//         !(self.start <= self.end)
-//     }
-
-// }
 
 pub struct AdvancedTxDescriptor {
     /// Starting physical address of the receive buffer for the packet.
@@ -235,18 +219,48 @@ pub struct AdvancedTxDescriptor {
     pub paylen_popts_cc_idx_sta: Volatile<u32>,
 }
 
+/// Tx Command: End of Packet
+pub const TX_CMD_EOP:                      u8 = 1 << 0;     
+/// Tx Command: Insert MAC FCS
+pub const TX_CMD_IFCS:                     u8 = 1 << 1;     
+/// Tx Command: Insert Checksum
+pub const TX_CMD_IC:                       u8 = 1 << 2;     
+/// Tx Command: Report Status
+pub const TX_CMD_RS:                       u8 = 1 << 3;     
+/// Tx Command: Report Packet Sent
+pub const TX_CMD_RPS:                      u8 = 1 << 4;     
+/// Tx Command: Descriptor Extension (Advanced format)
+pub const TX_CMD_DEXT:                     u8 = 1 << 5;  
+/// Tx Command: VLAN Packet Enable
+pub const TX_CMD_VLE:                      u8 = 1 << 6;     
+/// Tx Command: Interrupt Delay Enable
+pub const TX_CMD_IDE:                      u8 = 1 << 7;     
+/// Tx Status: descriptor Done
+pub const TX_STATUS_DD:                    u8 = 1 << 0;
+/// Tx Descriptor Type: advanced
+pub const TX_DTYP_ADV:                     u8 = 0x3 << 4;
+/// Tx Descriptor paylen shift
+/// The paylen is located at bit 46 in the upper 64 bits of the advanced Tx descriptor.
+/// Since we have divided the upper 64 bits into 4 parts (u16,u8,u8,u32),
+/// the paylen is then located at bit 14 of the upper 32 bits of the descriptor.
+pub const TX_PAYLEN_SHIFT:                 u8 = 46 - 32; //(actual offset - offset of variable) 
+
+
 impl AdvancedTxDescriptor {
+    #[inline(always)]
+    #[trusted]
     pub(crate) fn send(&mut self, transmit_buffer_addr: PhysicalAddress, transmit_buffer_length: u16) {
-        // self.packet_buffer_address.write(transmit_buffer_addr.value() as u64);
-        // self.data_len.write(transmit_buffer_length);
-        // self.dtyp_mac_rsv.write(TX_DTYP_ADV);
-        // self.paylen_popts_cc_idx_sta.write((transmit_buffer_length as u32) << TX_PAYLEN_SHIFT);
-        // self.dcmd.write(TX_CMD_DEXT | TX_CMD_RS | TX_CMD_IFCS | TX_CMD_EOP);
+        self.packet_buffer_address.write(transmit_buffer_addr.value() as u64);
+        self.data_len.write(transmit_buffer_length);
+        self.dtyp_mac_rsv.write(TX_DTYP_ADV);
+        self.paylen_popts_cc_idx_sta.write((transmit_buffer_length as u32) << TX_PAYLEN_SHIFT);
+        self.dcmd.write(TX_CMD_DEXT | TX_CMD_RS | TX_CMD_IFCS | TX_CMD_EOP);
     }
 
+    #[inline(always)]
+    #[trusted]
     pub fn desc_done(&self) -> bool {
-        // (self.paylen_popts_cc_idx_sta.read() as u8 & TX_STATUS_DD) == TX_STATUS_DD
-        true
+        (self.paylen_popts_cc_idx_sta.read() as u8 & TX_STATUS_DD) == TX_STATUS_DD
     }
 
 }
