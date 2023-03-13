@@ -10,7 +10,7 @@ mod vector_spec;
 mod structs;
 mod option_spec;
 mod result_spec;
-mod tx_rs;
+mod tx_rx;
 // mod filter;
 
 // use vector_spec::*;

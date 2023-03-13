@@ -1,3 +1,5 @@
+use std::ops::IndexMut;
+
 use crate::vector_spec::*;
 use crate::structs::*;
 use crate::option_spec::*;
@@ -14,13 +16,13 @@ use prusti_contracts::*;
 #[ensures((result.is_ok() && peek_result(&result) == 0) ==> old(*rx_cur_stored) == *rx_cur_stored)]
 #[ensures(result.is_ok()  ==> buffers.len() == old(buffers.len()) + peek_result(&result) as usize)]
 #[ensures(result.is_ok()  ==> rx_bufs_in_use.len() == old(rx_bufs_in_use.len()))]
-// #[ensures(result.is_ok() ==> forall (|i: usize| 0<= i && i < peek_result(&result) as usize ==> {
-//     let old_buffer_len = old(buffers.len());
-//     let rx_cur = (old(*rx_cur_stored) as usize + i) % num_rx_descs as usize;
-//     buffers.index(old_buffer_len + i).phys_addr.value() == old(rx_bufs_in_use.index(rx_cur)).phys_addr.value()
-// }))]
+#[after_expiry(result.is_ok() ==> forall (|i: usize| 0<= i && i < peek_result(&result) as usize ==> {
+    let rx_cur = (old(*rx_cur_stored) + i as u16) % num_rx_descs;
+    let old_buffer_len = old(buffers.len());
+    buffers.index(old_buffer_len + i).phys_addr.value() == old(rx_bufs_in_use.index(rx_cur as usize)).phys_addr.value()
+}))]
 pub fn rx_batch(
-    rx_descs: &mut VecWrapper<AdvancedRxDescriptor>, 
+    rx_descs: &mut [AdvancedRxDescriptor], 
     rx_cur_stored: &mut u16, 
     rx_bufs_in_use: &mut VecWrapper<PacketBufferS>,
     regs: &mut RxQueueRegisters,
@@ -39,6 +41,7 @@ pub fn rx_batch(
     let mut rcvd_pkts = 0;
     let mut i = 0;
     let buffers_len = buffers.len();
+
     while i < batch_size {
         body_invariant!(num_rx_descs as usize == rx_descs.len());
         body_invariant!(rx_cur  < num_rx_descs);
@@ -49,7 +52,7 @@ pub fn rx_batch(
         // body_invariant!((rx_cur == rx_cur_total) || (rx_cur_total % num_rx_descs == rx_cur));
         body_invariant!(buffers.len() == buffers_len + rcvd_pkts as usize);
 
-        let desc = rx_descs.index_mut(rx_cur as usize);
+        let desc = index_mut(rx_descs, rx_cur as usize);
 
         if !desc.descriptor_done() {
             break;
@@ -70,7 +73,7 @@ pub fn rx_batch(
             desc.set_packet_address(new_receive_buf.phys_addr);
             desc.reset_status();
             
-            let mut current_rx_buf = core::mem::replace(rx_bufs_in_use.index_mut(rx_cur as usize), new_receive_buf);
+            let mut current_rx_buf = replace(rx_bufs_in_use.index_mut(rx_cur as usize), new_receive_buf);
             current_rx_buf.length = length as u16; // set the ReceiveBuffer's length to the size of the actual packet received
             buffers.push(current_rx_buf);
 
@@ -100,8 +103,15 @@ pub fn rx_batch(
 
 
 #[trusted]
+#[requires(0 <= index && index < s.len())]
+#[after_expiry(s.len() == old(s.len()))]
+fn index_mut<T>(s: &mut [T], index: usize) -> &mut T {
+    &mut s[index]
+}
+
+#[trusted]
 #[ensures(old(dest).phys_addr.value() == result.phys_addr.value())]
-// #[ensures(dest.phys_addr.value() == src.phys_addr.value())]
+#[after_expiry(dest.phys_addr.value() == src.phys_addr.value())]
 fn replace(dest: &mut PacketBufferS, src: PacketBufferS) -> PacketBufferS{
     core::mem::replace(dest, src)
 }
@@ -114,8 +124,13 @@ fn replace(dest: &mut PacketBufferS, src: PacketBufferS) -> PacketBufferS{
 #[ensures(result.is_ok()  ==> buffers.len() == old(buffers.len()) - peek_result(&result).0 as usize)]
 #[ensures(result.is_ok()  ==> tx_bufs_in_use.len() == old(tx_bufs_in_use.len()) - peek_result(&result).1 + peek_result(&result).0 as usize)]
 #[ensures(result.is_ok()  ==> used_buffers.len() == old(used_buffers.len()) + peek_result(&result).1 )]
+#[after_expiry(result.is_ok() ==> forall (|i: usize| 0<= i && i < peek_result(&result).0 as usize ==> {
+    let pkts_removed = peek_result(&result).1;
+    let tx_bufs_length_old = old(tx_bufs_in_use.len()) - pkts_removed;
+    old(buffers.index(buffers.len() - i)).phys_addr.value() == tx_bufs_in_use.index(tx_bufs_length_old + i).phys_addr.value()
+}))]
 fn tx_batch(
-    tx_descs: &mut VecWrapper<AdvancedTxDescriptor>, 
+    tx_descs: &mut [AdvancedTxDescriptor], 
     tx_bufs_in_use: &mut VecWrapper<PacketBufferS>,
     num_tx_descs: u16,
     tx_clean_stored: &mut u16,
@@ -159,7 +174,7 @@ fn tx_batch(
                 break;
             }
 
-            tx_descs.index_mut(tx_cur as usize).send(packet.phys_addr, packet.length);
+            index_mut(tx_descs, tx_cur as usize).send(packet.phys_addr, packet.length);
             tx_bufs_in_use.push(packet);
 
             tx_cur = tx_next;
@@ -184,8 +199,12 @@ fn tx_batch(
 #[trusted]
 #[ensures(old(tx_bufs_in_use.len()) == tx_bufs_in_use.len() + result)]
 #[ensures(old(used_buffers.len()) + result == used_buffers.len())]
+#[after_expiry( forall (|i: usize| 0 <= i && i < result as usize ==> {
+    let old_used_buffer_len = old(used_buffers.len());
+    used_buffers.index(old_used_buffer_len + i).phys_addr.value() == old(tx_bufs_in_use.index(i)).phys_addr.value()
+}))]
 fn tx_clean(    
-    tx_descs: &VecWrapper<AdvancedTxDescriptor>, 
+    tx_descs: &[AdvancedTxDescriptor], 
     tx_bufs_in_use: &mut VecWrapper<PacketBufferS>,
     tx_clean_stored: &mut u16, 
     tx_cur_stored: &u16, 
@@ -215,7 +234,7 @@ fn tx_clean(
             cleanup_to -= num_tx_descs as usize;
         }
 
-        if tx_descs.index(cleanup_to).desc_done() {
+        if tx_descs[cleanup_to].desc_done() {
             if TX_CLEAN_BATCH >= tx_bufs_in_use.len() {
                 used_buffers.v.extend(tx_bufs_in_use.v.drain(..));
                 pkts_removed += tx_bufs_in_use.len();
