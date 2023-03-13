@@ -6,12 +6,12 @@ extern crate alloc;
 
 
 use prusti_contracts::*;
-// mod vector_spec;
-// mod structs;
+mod vector_spec;
+mod structs;
 mod option_spec;
 mod result_spec;
-// mod tx_rs;
-mod filter;
+mod tx_rs;
+// mod filter;
 
 // use vector_spec::*;
 // use structs::*;

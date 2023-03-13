@@ -1,4 +1,5 @@
 use prusti_contracts::*;
+use core::ops::{DerefMut, Deref};
 
 pub struct Volatile<T: Copy>{
     inner: T
@@ -127,9 +128,38 @@ pub struct RxQueueRegisters {
     pub(crate) regs: Fragment<RegistersRx>
 }
 
+impl Deref for RxQueueRegisters {
+    type Target = Fragment<RegistersRx>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.regs
+    }
+}
+
+impl DerefMut for RxQueueRegisters {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.regs
+    }
+}
+
 pub struct Fragment<T> {
     pub(crate) ptr: Box<T>,
 }
+
+impl<T> Deref for Fragment<T> {
+    type Target = Box<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.ptr
+    }
+}
+
+impl<T> DerefMut for Fragment<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ptr
+    }
+}
+
 pub struct RegistersRx {
     /// Receive Descriptor Base Address Low
     pub rdbal:                          Volatile<u32>,        // 0x1000
@@ -227,6 +257,20 @@ pub(crate) struct TxQueueRegisters {
     /// We prevent the drop handler from dropping the `regs` because the backing memory is not in the heap,
     /// but in the stored mapped pages. The memory will be deallocated when the `backing_pages` are dropped.
     pub(crate)regs: Fragment<RegistersTx>
+}
+
+impl Deref for TxQueueRegisters {
+    type Target = Fragment<RegistersTx>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.regs
+    }
+}
+
+impl DerefMut for TxQueueRegisters {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.regs
+    }
 }
 
 pub(crate) struct RegistersTx {
