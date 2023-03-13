@@ -117,9 +117,9 @@ fn replace(dest: &mut PacketBufferS, src: PacketBufferS) -> PacketBufferS{
 }
 
 
-#[requires(0 <= *tx_cur_stored && (*tx_cur_stored as usize) < tx_descs.len())]
 #[requires(tx_descs.len() > 0)]
 #[requires((num_tx_descs as usize) == tx_descs.len())]
+#[requires(0 <= *tx_cur_stored && *tx_cur_stored < num_tx_descs)]
 #[ensures(result.is_ok() ==> (old(*tx_cur_stored) + peek_result(&result).0) % num_tx_descs == *tx_cur_stored)]
 #[ensures(result.is_ok()  ==> buffers.len() == old(buffers.len()) - peek_result(&result).0 as usize)]
 #[ensures(result.is_ok()  ==> tx_bufs_in_use.len() == old(tx_bufs_in_use.len()) - peek_result(&result).1 + peek_result(&result).0 as usize)]
@@ -140,15 +140,17 @@ fn tx_batch(
     buffers: &mut VecWrapper<PacketBufferS>, 
     used_buffers: &mut VecWrapper<PacketBufferS>
 ) -> Result<(u16, usize), &'static str> {
+    let pkts_removed = tx_clean(tx_descs, tx_bufs_in_use, tx_clean_stored, tx_cur_stored, num_tx_descs, used_buffers);
+    
     let mut pkts_sent = 0;
+    let tx_clean = *tx_clean_stored;
     let mut tx_cur = *tx_cur_stored;
 
     // have to add this in for verification because the verifier can't reason that taking the remainder after each increment, 
     // or taking the remainder after all increments is equivalent
     let mut tx_cur_total = *tx_cur_stored; 
 
-    let pkts_removed = tx_clean(tx_descs, tx_bufs_in_use, tx_clean_stored, tx_cur_stored, num_tx_descs, used_buffers);
-    let tx_clean = *tx_clean_stored;
+
     // debug!("tx_cur = {}, tx_clean ={}", tx_cur, tx_clean);
     
     let buffers_len = buffers.len();
@@ -163,6 +165,7 @@ fn tx_batch(
         // // body_invariant!((rx_cur == rx_cur_total) || (rx_cur_total % num_rx_descs == rx_cur));
         body_invariant!(buffers.len() == buffers_len - pkts_sent as usize);
         body_invariant!(tx_bufs_in_use.len() == buffers_in_use_len + pkts_sent as usize);
+        // body_invariant!(tx_cur == (*tx_cur_stored + pkts_sent) % num_tx_descs);
 
         if let Some(packet) = buffers.pop() {
             let tx_next = (tx_cur + 1) % num_tx_descs;
@@ -180,6 +183,7 @@ fn tx_batch(
             tx_cur = tx_next;
             pkts_sent += 1;
             tx_cur_total += 1;
+
         } else {
             break;
         }

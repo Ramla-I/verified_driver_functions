@@ -85,7 +85,7 @@ pub struct PacketBufferS {
     pub(crate) length: u16,
 }
 
-impl std::cmp::PartialEq for PacketBufferS {
+impl core::cmp::PartialEq for PacketBufferS {
     #[pure]
     fn eq(&self, other: &Self) -> bool {
         self.phys_addr.0 == other.phys_addr.0
@@ -101,7 +101,7 @@ impl PhysicalAddress {
     }
 }
 
-impl std::cmp::PartialEq for PhysicalAddress {
+impl core::cmp::PartialEq for PhysicalAddress {
     #[pure]
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0

@@ -25,8 +25,4 @@ use result_spec::*;
 //     pages.len() - 1 
 // }
 
-fn main() {
-    
-}
-
 

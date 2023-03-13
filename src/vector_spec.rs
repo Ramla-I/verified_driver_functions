@@ -1,11 +1,11 @@
 use prusti_contracts::*;
 use crate::{option_spec::*, structs::PacketBufferS};
 
-pub struct VecWrapper<T>{
+pub struct VecWrapper<T: PartialEq>{
     pub(crate) v: Vec<T>
 }
 
-impl<T> VecWrapper<T> {
+impl<T: PartialEq> VecWrapper<T> {
 
     #[trusted]
     #[ensures(result.len() == 0)]
@@ -26,15 +26,33 @@ impl<T> VecWrapper<T> {
         &self.v[index]
     }
 
-    #[trusted]
-    #[requires(0 <= index && index < self.len())]
-    #[after_expiry(self.len() == old(self.len()))]
-    pub fn index_mut(&mut self, index: usize) -> &mut T {
-        &mut self.v[index]
-    }
+    // #[trusted]
+    // #[requires(0 <= index && index < self.len())]
+    // #[after_expiry(self.len() == old(self.len()))]
+    // pub fn index_mut(&mut self, index: usize) -> &mut T {
+    //     &mut self.v[index]
+    // }
 }
 
 impl VecWrapper<PacketBufferS> {
+    /// Ideally this should be a generic function, but I get the error
+    /// "[Prusti: invalid specification] use of impure function "std::cmp::PartialEq::eq" in pure code is not allowed"
+    /// even though I implemented PartialEq for PacketBufferS and declared it as a pure fn
+    #[trusted]
+    #[requires(0 <= index && index < self.len())]
+    // #[after_expiry(self.len() == old(self.len()))]
+    #[after_expiry(
+        self.len() == old(self.len()) &&
+        self.index(index).phys_addr.value() == before_expiry(result).phys_addr.value() &&
+        forall(
+            |i: usize| (0 <= i && i < self.len() && i != index) ==>
+            self.index(i).phys_addr.value() == old(self.index(i).phys_addr.value())
+        )
+    )]
+    pub fn index_mut(&mut self, index: usize) -> &mut PacketBufferS {
+        &mut self.v[index]
+    }
+
     #[trusted]
     #[ensures(self.len() == old(self.len()) + 1)]
     #[ensures(forall (|i: usize| 0 <= i && i < old(self.len()) ==> {
@@ -56,32 +74,6 @@ impl VecWrapper<PacketBufferS> {
     }))]
     #[ensures(result.is_some() ==> peek_option_ref(&result).phys_addr.value() == old(self.index(self.len() - 1)).phys_addr.value())]
     pub fn pop(&mut self) -> Option<PacketBufferS> {
-        self.v.pop()
-    }
-}
-
-impl VecWrapper<usize> {
-    #[trusted]
-    #[ensures(self.len() == old(self.len()) + 1)]
-    #[ensures(forall (|i: usize| 0 <= i && i < old(self.len()) ==> {
-        self.index(i) == old(self.index(i))
-    }))]
-    #[after_expiry({
-        let idx = self.len() - 1;
-        *self.index(idx) == value
-    })]
-    pub fn push(&mut self, value: usize) {
-        self.v.push(value);
-    }
-
-    #[trusted]
-    #[ensures(result.is_some() ==> self.len() == old(self.len()) - 1)]
-    #[ensures(result.is_none() ==> self.len() == old(self.len()))]
-    #[ensures(forall (|i: usize| 0 <= i && i < self.len() ==> {
-        self.index(i) == old(self.index(i))
-    }))]
-    #[ensures(result.is_some() ==> peek_option_ref(&result) == old(self.index(self.len() - 1)))]
-    pub fn pop(&mut self) -> Option<usize> {
         self.v.pop()
     }
 }
