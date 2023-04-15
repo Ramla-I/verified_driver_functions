@@ -1,8 +1,6 @@
 use prusti_contracts::*;
 use core::ops::{DerefMut, Deref};
 
-use crate::vector_spec::VecWrapper;
-
 pub struct Volatile<T: Copy>{
     inner: T
 }
@@ -94,61 +92,16 @@ impl AdvancedRxDescriptor {
  
 }
 
-pub struct Mempool {
-    pub buffer_indices: VecWrapper<PacketBuffer>,
-    buffers: Vec<BufferMetadata>,
+pub struct PacketBufferS {
+    pub(crate) mp: MappedPages,
+    pub(crate) phys_addr: PhysicalAddress,
+    pub(crate) length: u16,
 }
 
-impl Mempool {
-    pub fn pop(&mut self) -> Option<PacketBuffer> {
-        self.buffer_indices.pop()
-    }
-
-    #[inline(always)]
-    #[trusted]
-    pub fn phys_addr(&self, buffer: &PacketBuffer) -> PhysicalAddress {
-        self.buffers[buffer.0].paddr
-    }
-
-    #[inline(always)]
-    #[trusted]
-    pub fn buffer_metadata(&self, buffer: &PacketBuffer) -> (PhysicalAddress, u16) {
-        (self.buffers[buffer.0].paddr, self.buffers[buffer.0].length)
-    }
-
-    #[inline(always)]
-    #[trusted]
-    pub fn set_length(&mut self, buffer: &PacketBuffer, length: u16) {
-        self.buffers[buffer.0].length = length;
-    }
-
-    #[inline(always)]
-    #[trusted]
-    pub fn get_length(&mut self, buffer: &PacketBuffer) -> u16 {
-        self.buffers[buffer.0].length
-    }
-}
-
-struct BufferMetadata {
-    frame: EthernetFrame,
-    paddr: PhysicalAddress,
-    length: u16
-}
-
-pub struct EthernetFrame {
-    pub dest_addr:  [u8; 6],
-    pub src_addr:   [u8; 6],
-    pub length:     u16,
-    pub payload:    [u8; 1500],
-    _padding: [u8; 2048 - 1514]
-}
-
-pub struct PacketBuffer(usize);
-
-impl core::cmp::PartialEq for PacketBuffer {
+impl core::cmp::PartialEq for PacketBufferS {
     #[pure]
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.phys_addr.0 == other.phys_addr.0
     }
 }
 

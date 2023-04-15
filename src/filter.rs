@@ -1,9 +1,15 @@
-use std::iter::Filter;
-
 use prusti_contracts::*;
 use crate::option_spec::*;
 use crate::result_spec::*;
 
+pub struct EnableFilter(usize);
+
+impl EnableFilter {
+    #[pure]
+    pub fn value(&self) ->  usize {
+        self.0
+    }
+}
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum FilterProtocol {
@@ -61,35 +67,78 @@ impl FilterParameters {
     }
 }
 
+// #[ensures(result.is_ok() ==> {
+//     let idx = peek_result_ref(&result).value(); 
+//     filters[idx].is_some() 
+//     && 
+//     peek_option(&filters[idx]) == new_filter
+// })]
+// #[ensures(result.is_err() ==> {
+//     match peek_err(&result) {
+//         FilterError::NoneAvailable => forall(|i: usize|( 0 <= i && i < 128 ==> filters[i] == old(filters[i]))),
+//         FilterError::IdenticalFilter(idx) => filters[idx].is_some() && peek_option(&filters[idx]).parameters_equal(&new_filter),
+//         _ => true
+//     }
+// })]
+// pub fn add_filter(filters: &mut [Option<FilterParameters>; 128], new_filter: FilterParameters) -> Result<usize, FilterError> {
+//     let mut i = 0;
+//     while i < 128 {
+//         body_invariant!(0 <= i && i < 128);
+//         if filters[i].is_some() {
+//             let filter = filters[i].unwrap();
+//             if filter.parameters_equal(&new_filter) {
+//                 return Err(FilterError::IdenticalFilter(i));
+//             }
+//         } else {
+//             filters[i] = Some(new_filter);
+//             return Ok(i);
+//         }
+//         i += 1;
+//     }
+//     return Err(FilterError::NoneAvailable)
+// }
+
 #[ensures(result.is_ok() ==> {
-    let idx = peek_result(&result); 
-    filters[idx].is_some() 
-    && 
-    peek_option(&filters[idx]) == new_filter
+    forall(|i: usize| 0 <= i && i < 128 ==> {
+        if i == peek_result_ref(&result).value() {
+            filters[i].is_some() && peek_option(&filters[i]) == new_filter
+        } else {
+            filters[i] == old(filters[i]) && (filters[i].is_some() ==> !peek_option(&filters[i]).parameters_equal(&new_filter))
+        }
+    } )
 })]
 #[ensures(result.is_err() ==> {
     match peek_err(&result) {
-        FilterError::NoneAvailable => forall(|i: usize|( 0 <= i && i < 128 ==> filters[i] == old(filters[i]))),
+        FilterError::NoneAvailable => forall(|i: usize|( 0 <= i && i < 128 ==> filters[i].is_some())),
         FilterError::IdenticalFilter(idx) => filters[idx].is_some() && peek_option(&filters[idx]).parameters_equal(&new_filter),
-        _ => true
-    }
+    } && forall(|i: usize|( 0 <= i && i < 128 ==> filters[i] == old(filters[i])))
 })]
-pub fn add_filter(filters: &mut [Option<FilterParameters>; 128], new_filter: FilterParameters) -> Result<usize, FilterError> {
+pub fn check_and_add_filter(filters: &mut [Option<FilterParameters>; 128], new_filter: FilterParameters) -> Result<EnableFilter, FilterError> {
     let mut i = 0;
+    let mut unused_filter = None ;
+
     while i < 128 {
         body_invariant!(0 <= i && i < 128);
+        body_invariant!(unused_filter.is_some() ==> peek_option(&unused_filter) < filters.len());
+        body_invariant!(forall( |x: usize| 0 <= x && x < i ==> {filters[x].is_some() ==> !peek_option(&filters[x]).parameters_equal(&new_filter)}));
+        body_invariant!(unused_filter.is_none() ==> forall( |x: usize| 0 <= x && x < i ==> filters[x].is_some()));
+
         if filters[i].is_some() {
-            let filter = filters[i].unwrap();
-            if filter.parameters_equal(&new_filter) {
+            if filters[i].unwrap().parameters_equal(&new_filter) {
                 return Err(FilterError::IdenticalFilter(i));
             }
-        } else {
-            filters[i] = Some(new_filter);
-            return Ok(i);
+        } else if unused_filter.is_none(){
+            unused_filter = Some(i);
         }
         i += 1;
     }
-    return Err(FilterError::NoneAvailable)
+    if unused_filter.is_some() {
+        let filter_idx = unused_filter.unwrap();
+        filters[filter_idx] = Some(new_filter);
+        Ok(EnableFilter(filter_idx))
+    } else {
+        Err(FilterError::NoneAvailable)
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]

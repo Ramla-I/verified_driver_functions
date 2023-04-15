@@ -1,5 +1,5 @@
 use prusti_contracts::*;
-use crate::{option_spec::*, structs::PacketBufferS};
+use crate::{option_spec::*, structs::PacketBuffer};
 
 pub struct VecWrapper<T: PartialEq>{
     pub(crate) v: Vec<T>
@@ -34,10 +34,10 @@ impl<T: PartialEq> VecWrapper<T> {
     // }
 }
 
-impl VecWrapper<PacketBufferS> {
+impl VecWrapper<PacketBuffer> {
     /// Ideally this should be a generic function, but I get the error
     /// "[Prusti: invalid specification] use of impure function "std::cmp::PartialEq::eq" in pure code is not allowed"
-    /// even though I implemented PartialEq for PacketBufferS and declared it as a pure fn
+    /// even though I implemented PartialEq for PacketBuffer and declared it as a pure fn
     #[trusted]
     #[requires(0 <= index && index < self.len())]
     // #[after_expiry(self.len() == old(self.len()))]
@@ -49,7 +49,7 @@ impl VecWrapper<PacketBufferS> {
             self.index(i).phys_addr.value() == old(self.index(i).phys_addr.value())
         )
     )]
-    pub fn index_mut(&mut self, index: usize) -> &mut PacketBufferS {
+    pub fn index_mut(&mut self, index: usize) -> &mut PacketBuffer {
         &mut self.v[index]
     }
 
@@ -62,7 +62,7 @@ impl VecWrapper<PacketBufferS> {
         let idx = self.len() - 1;
         self.index(idx).phys_addr.value() == value.phys_addr.value()
     })]
-    pub fn push(&mut self, value: PacketBufferS) {
+    pub fn push(&mut self, value: PacketBuffer) {
         self.v.push(value);
     }
 
@@ -73,7 +73,7 @@ impl VecWrapper<PacketBufferS> {
         self.index(i).phys_addr.value() == old(self.index(i)).phys_addr.value()
     }))]
     #[ensures(result.is_some() ==> peek_option_ref(&result).phys_addr.value() == old(self.index(self.len() - 1)).phys_addr.value())]
-    pub fn pop(&mut self) -> Option<PacketBufferS> {
+    pub fn pop(&mut self) -> Option<PacketBuffer> {
         self.v.pop()
     }
 }

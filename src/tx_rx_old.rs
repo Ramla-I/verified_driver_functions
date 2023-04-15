@@ -24,13 +24,13 @@ use prusti_contracts::*;
 pub fn rx_batch(
     rx_descs: &mut [AdvancedRxDescriptor], 
     rx_cur_stored: &mut u16, 
-    rx_bufs_in_use: &mut VecWrapper<PacketBuffer>,
+    rx_bufs_in_use: &mut VecWrapper<PacketBufferS>,
     regs: &mut RxQueueRegisters,
     num_rx_descs: u16,
-    buffers: &mut VecWrapper<PacketBuffer>, 
+    buffers: &mut VecWrapper<PacketBufferS>, 
     batch_size: usize, 
-    pool: &mut Mempool
-) -> u16 {
+    pool: &mut VecWrapper<PacketBufferS>
+) -> Result<u16, ()> {
     let mut rx_cur = *rx_cur_stored;
     let mut last_rx_cur = *rx_cur_stored;
 
@@ -53,20 +53,28 @@ pub fn rx_batch(
         body_invariant!(buffers.len() == buffers_len + rcvd_pkts as usize);
 
         let desc = index_mut(rx_descs, rx_cur as usize);
-        let (dd, length) = desc.rx_metadata();
-        if !dd {
+
+        if !desc.descriptor_done() {
             break;
         }
+
+        if !desc.end_of_packet() {
+            // return Err("Currently do not support multi-descriptor packets");
+            return Err(());
+        }
+
+        let length = desc.length();
 
         // Now that we are "removing" the current receive buffer from the list of receive buffers that the NIC can use,
         // (because we're saving it for higher layers to use),
         // we need to obtain a new `ReceiveBuffer` and set it up such that the NIC will use it for future receivals.
         if let Some(new_receive_buf) = pool.pop() {
             // actually tell the NIC about the new receive buffer, and that it's ready for use now
-            desc.set_packet_address(pool.phys_addr(&new_receive_buf));
+            desc.set_packet_address(new_receive_buf.phys_addr);
+            desc.reset_status();
             
             let mut current_rx_buf = replace(rx_bufs_in_use.index_mut(rx_cur as usize), new_receive_buf);
-            pool.set_length(&current_rx_buf, length as u16); // set the ReceiveBuffer's length to the size of the actual packet received
+            current_rx_buf.length = length as u16; // set the ReceiveBuffer's length to the size of the actual packet received
             buffers.push(current_rx_buf);
 
             rcvd_pkts += 1;
@@ -75,7 +83,8 @@ pub fn rx_batch(
             rx_cur = (rx_cur + 1) % num_rx_descs;
             // prusti_assert!((last_rx_cur + rcvd_pkts) % rx_descs.len() == rx_cur)
         } else {
-            break;
+            // return Err("Ran out of packet buffers");
+            return Err(());
         }
         i += 1;
     }
@@ -88,7 +97,8 @@ pub fn rx_batch(
         regs.rdt.write(last_rx_cur as u32); 
     }
 
-   rcvd_pkts
+
+    Ok(rcvd_pkts)
 }
 
 
@@ -102,7 +112,7 @@ fn index_mut<T>(s: &mut [T], index: usize) -> &mut T {
 #[trusted]
 #[ensures(old(dest).phys_addr.value() == result.phys_addr.value())]
 #[after_expiry(dest.phys_addr.value() == src.phys_addr.value())]
-fn replace(dest: &mut PacketBuffer, src: PacketBuffer) -> PacketBuffer{
+fn replace(dest: &mut PacketBufferS, src: PacketBufferS) -> PacketBufferS{
     core::mem::replace(dest, src)
 }
 
@@ -121,14 +131,14 @@ fn replace(dest: &mut PacketBuffer, src: PacketBuffer) -> PacketBuffer{
 }))]
 fn tx_batch(
     tx_descs: &mut [AdvancedTxDescriptor], 
-    tx_bufs_in_use: &mut VecWrapper<PacketBuffer>,
+    tx_bufs_in_use: &mut VecWrapper<PacketBufferS>,
     num_tx_descs: u16,
     tx_clean_stored: &mut u16,
     tx_cur_stored: &mut u16,
     regs: &mut TxQueueRegisters,
     batch_size: usize,  
-    buffers: &mut VecWrapper<PacketBuffer>, 
-    used_buffers: &mut VecWrapper<PacketBuffer>
+    buffers: &mut VecWrapper<PacketBufferS>, 
+    used_buffers: &mut VecWrapper<PacketBufferS>
 ) -> Result<(u16, usize), &'static str> {
     let pkts_removed = tx_clean(tx_descs, tx_bufs_in_use, tx_clean_stored, tx_cur_stored, num_tx_descs, used_buffers);
     
@@ -199,29 +209,50 @@ fn tx_batch(
 }))]
 fn tx_clean(    
     tx_descs: &[AdvancedTxDescriptor], 
-    tx_bufs_in_use: &mut VecWrapper<PacketBuffer>,
+    tx_bufs_in_use: &mut VecWrapper<PacketBufferS>,
     tx_clean_stored: &mut u16, 
     tx_cur_stored: &u16, 
     num_tx_descs: u16, 
-    used_buffers: &mut VecWrapper<PacketBuffer>,
-    head: u32
+    used_buffers: &mut VecWrapper<PacketBufferS>
 )  -> usize {
-    const TX_CLEAN_BATCH: u16 = 64;
-    let head = head as u16;
-    let pkts_removed;
-    let cleanable = (head as i32 - *tx_clean_stored as i32) as u16 & (num_tx_descs - 1);
-    if cleanable < TX_CLEAN_BATCH {
-        return 0;
+    const TX_CLEAN_BATCH: usize = 32;
+
+    let mut tx_clean = *tx_clean_stored as usize;
+    let tx_cur = *tx_cur_stored;
+    let mut pkts_removed = 0;
+
+    loop {
+        let mut cleanable = tx_cur as i32 - tx_clean as i32;
+
+        if cleanable < 0 {
+            cleanable += num_tx_descs as i32;
+        }
+
+        if cleanable < TX_CLEAN_BATCH as i32 {
+            break;
+        }
+
+        let mut cleanup_to = tx_clean + TX_CLEAN_BATCH - 1;
+
+        if cleanup_to >= num_tx_descs as usize {
+            cleanup_to -= num_tx_descs as usize;
+        }
+
+        if tx_descs[cleanup_to].desc_done() {
+            if TX_CLEAN_BATCH >= tx_bufs_in_use.len() {
+                used_buffers.v.extend(tx_bufs_in_use.v.drain(..));
+                pkts_removed += tx_bufs_in_use.len();
+            } else {
+                used_buffers.v.extend(tx_bufs_in_use.v.drain(..TX_CLEAN_BATCH));
+                pkts_removed += TX_CLEAN_BATCH;
+            };
+
+            tx_clean = (cleanup_to + 1) % num_tx_descs as usize;
+        } else {
+            break;
+        }
     }
 
-    if cleanable as usize >= tx_bufs_in_use.len() {
-        used_buffers.v.extend(tx_bufs_in_use.v.drain(..));
-        pkts_removed = tx_bufs_in_use.len();
-    } else {
-        used_buffers.v.extend(tx_bufs_in_use.v.drain(..cleanable as usize));
-        pkts_removed = cleanable as usize;
-    };
-    
-    *tx_clean_stored = head;
+    *tx_clean_stored = tx_clean as u16;
     pkts_removed
 }

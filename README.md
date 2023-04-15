@@ -11,3 +11,6 @@ Other Useful flags:
 -Poptimizations
 -Popt_in_verification
 -Pno_verify_deps
+
+
+./prusti-rustc ../Theseus/kernel/ixgbe_verified/src/lib.rs -Pcheck_overflows=false -Pcache_path=../../Desktop/cache_ixgbe.bin --crate-type=lib --cfg "prusti"

@@ -1,16 +1,15 @@
 // works with command line release versions, but not with the vscode extension
-#![feature(allocator_api)]
 extern crate prusti_contracts;
 extern crate core;
 extern crate alloc;
 
 
 use prusti_contracts::*;
-mod vector_spec;
-mod structs;
+// mod vector_spec;
+// mod structs;
 mod option_spec;
 mod result_spec;
-mod tx_rx;
+// mod tx_rx;
 // mod filter;
 
 // use vector_spec::*;
@@ -26,3 +25,4 @@ use result_spec::*;
 // }
 
 
+fn main(){}
